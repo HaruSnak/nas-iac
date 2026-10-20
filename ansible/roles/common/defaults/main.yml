@@ -1,0 +1,10 @@
+---
+# SSH daemon service name (Debian: ssh)
+common_sshd_service: ssh
+
+# Container runtime account (UID/GID = puid/pgid)
+common_containers_user: svc-containers
+
+# Seerr (formerly Jellyseerr) runs as the image's node user, not as PUID
+common_seerr_uid: 1000
+common_seerr_gid: 1000

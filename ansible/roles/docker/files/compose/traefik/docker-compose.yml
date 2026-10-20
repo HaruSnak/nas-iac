@@ -1,0 +1,68 @@
+services:
+  # Only container with the Docker socket: exposes read-only container access
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.6-r0-ls101
+    container_name: traefik-socket-proxy
+    environment:
+      - CONTAINERS=1
+      - LOG_LEVEL=info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+    networks:
+      - socket-proxy
+    restart: unless-stopped
+
+  traefik:
+    image: traefik:v3.7.14
+    container_name: traefik
+    command:
+      - "--api.dashboard=false"
+      - "--log.level=INFO"
+      # /ping endpoint for the container healthcheck (internal port 8080, not published)
+      - "--ping=true"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=tcp://socket-proxy:2375"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.http.middlewares=security-headers@file"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=${TRAEFIK_CERTIF_PROVIDER}"
+      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_CERTIF_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "8000:80"
+      - "8443:443"
+    environment:
+      - CF_DNS_API_TOKEN=${CLOUDFLARE_API_KEY}
+    volumes:
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - ${DOCKER_PATH}/data/traefik/letsencrypt:/letsencrypt
+    depends_on:
+      - socket-proxy
+    networks:
+      - traefik-net
+      - socket-proxy
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+networks:
+  traefik-net:
+    external: true
+  socket-proxy:
+    driver: bridge
+    internal: true

@@ -1,0 +1,6 @@
+---
+- name: Reload SSH
+  ansible.builtin.service:
+    name: "{{ common_sshd_service }}"
+    state: reloaded  # open sessions, including Ansible's, are kept
+  become: true

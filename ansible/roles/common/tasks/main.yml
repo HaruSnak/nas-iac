@@ -1,0 +1,81 @@
+---
+- name: Check that Docker is installed
+  ansible.builtin.command: docker --version
+  register: common_docker_check
+  changed_when: false
+  failed_when: common_docker_check.rc != 0
+
+# Dedicated container account: no shell, no password, no supplementary
+# group. The account that deploys is never the one that runs.
+- name: Create the container runtime group
+  ansible.builtin.group:
+    name: "{{ common_containers_user }}"
+    gid: "{{ pgid }}"
+    system: true
+  become: true
+
+- name: Create the container runtime account
+  ansible.builtin.user:
+    name: "{{ common_containers_user }}"
+    uid: "{{ puid }}"
+    group: "{{ common_containers_user }}"
+    groups: ""  # with append: false, removes every supplementary group (incl. docker)
+    append: false
+    shell: /usr/sbin/nologin
+    create_home: false
+    password_lock: true
+    system: true
+  become: true
+
+# Read/write access to container data through the group, without owning it:
+# a compromised container cannot tamper with this account
+- name: Add the service account to the container group
+  ansible.builtin.user:
+    name: "{{ jit_service_account }}"
+    groups: "{{ common_containers_user }}"
+    append: true
+  become: true
+
+# The docker group is root-equivalent without sudo. The service account
+# doesn't need it: Docker modules already run through become.
+- name: Read docker group members
+  ansible.builtin.getent:
+    database: group
+    key: docker
+
+- name: Remove the service account from the docker group
+  ansible.builtin.command: "gpasswd -d {{ jit_service_account }} docker"
+  become: true
+  when: jit_service_account in ansible_facts['getent_group']['docker'][2].split(',')
+  changed_when: true
+
+- name: Create stack root directories
+  ansible.builtin.file:
+    path: "{{ data_path }}/{{ item }}"
+    state: directory
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0755'
+  become: true
+  loop: "{{ data_stacks_path }}"
+
+# The container resets owner and mode itself at startup (Postgres requires
+# 0700): forcing them here would break them until the next restart
+- name: Create container-managed directories
+  ansible.builtin.file:  # noqa: risky-file-permissions
+    path: "{{ data_path }}/{{ item }}"
+    state: directory
+  become: true
+  loop: "{{ data_stacks_path_container_owned }}"
+
+# Seerr writes as UID 1000: recursive to take over existing files created
+# as PUID by the former Jellyseerr image
+- name: Create the Seerr config directory
+  ansible.builtin.file:
+    path: "{{ data_path }}/docker/data/jellyseerr/config"
+    state: directory
+    owner: "{{ common_seerr_uid }}"
+    group: "{{ common_seerr_gid }}"
+    mode: "u=rwX,g=rX,o="  # X: execute bit on directories only
+    recurse: true
+  become: true

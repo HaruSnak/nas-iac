@@ -1,0 +1,67 @@
+---
+name: Lint
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+jobs:
+  # Check syntax and style of all YAML files
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: yamllint
+        run: pipx run yamllint --strict .
+
+  # Check Ansible playbooks and roles (best practices, errors)
+  ansible-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # ansible.cfg points to .vault_pass, which is git-ignored: a dummy file is
+      # enough since no vault.yml exists in the repo
+      - name: Dummy Vault password
+        run: echo dummy > ansible/.vault_pass
+      - name: ansible-lint
+        uses: ansible/ansible-lint@9bce2bfb8f4a984e6b13767bc0d6bf0a49492164  # v26.10.1
+        with:
+          working_directory: ansible
+          requirements_file: requirements.yml
+
+  # Check that every docker-compose.yml is valid
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Validate every docker-compose.yml
+        # No .env in CI: placeholder paths so volume definitions stay valid
+        env:
+          DOCKER_PATH: /placeholder/docker
+          MEDIA_PATH: /placeholder/media
+        run: |
+          for f in ansible/roles/docker/files/compose/*/docker-compose.yml; do
+            echo "::group::$f"
+            docker compose -f "$f" --env-file /dev/null config -q
+            echo "::endgroup::"
+          done
+
+  # Scan code and git history for secrets (passwords, keys)
+  gitleaks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false

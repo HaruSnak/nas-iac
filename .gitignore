@@ -1,0 +1,15 @@
+# .env: generated on the NAS by Ansible (templates/env.j2), never locally
+.env
+
+# Ansible variables: only vars.yml.example and vault.yml.example are committed
+ansible/inventories/*/group_vars/*/vars.yml
+ansible/inventories/production/inventory.yml
+
+# Ansible Vault
+ansible/.vault_pass
+ansible/inventories/*/group_vars/*/vault.yml
+
+# Ansible
+*.retry
+# Local cache (collections downloaded by ansible-lint)
+.ansible/

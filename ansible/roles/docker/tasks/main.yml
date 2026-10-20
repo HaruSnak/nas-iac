@@ -1,0 +1,82 @@
+---
+# .env files are generated from group_vars: leftover local .env files would
+# be copied then overwritten on every run.
+- name: Fail if local .env files still exist in files/compose
+  ansible.builtin.assert:
+    that: legacy_env_files | length == 0
+    fail_msg: >-
+      Move their values to group_vars/nas (vars.yml / vault.yml), then
+      delete: {{ legacy_env_files | join(', ') }}
+  vars:
+    legacy_env_files: "{{ lookup('ansible.builtin.fileglob', role_path ~ '/files/compose/*/.env', wantlist=True) }}"
+
+- name: Check .env variables (non-empty, no single quote)
+  ansible.builtin.assert:
+    that:
+      - env_empty | length == 0
+      - env_quoted | length == 0
+    fail_msg: >-
+      Stack {{ item }} — empty: {{ env_empty | join(', ') or 'none' }};
+      containing ' (forbidden): {{ env_quoted | join(', ') or 'none' }}
+    quiet: true
+  vars:
+    env_items: "{{ docker_env_common | combine(docker_stacks_env[item]) | dict2items }}"
+    env_empty: "{{ env_items | selectattr('value', 'equalto', '') | map(attribute='key') | list }}"
+    env_quoted: "{{ env_items | selectattr('value', 'search', \"'\") | map(attribute='key') | list }}"
+  loop: "{{ docker_stacks }}"
+
+- name: Create external networks
+  community.docker.docker_network:
+    name: "{{ item }}"
+    driver: "bridge"
+    state: present
+  loop: "{{ docker_networks_external }}"
+
+# Containers reading these files (Prometheus, Grafana, Jellyfin) run as
+# PUID: PUID ownership with 0600/0700 is enough.
+- name: Copy full stack definitions
+  ansible.builtin.copy:
+    src: "files/compose/{{ item }}/"
+    dest: "{{ docker_stacks_path }}/{{ item }}/"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0600'
+    directory_mode: '0700'
+  loop: "{{ docker_stacks }}"
+
+- name: Generate each stack's .env
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ docker_stacks_path }}/{{ item }}/.env"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0600'
+  loop: "{{ docker_stacks }}"
+
+# Jellyfin rewrites system.xml: no longer mounted, seeded once only (when
+# missing or empty, a leftover of the former file mount).
+- name: Check Jellyfin system.xml
+  ansible.builtin.stat:
+    path: "{{ data_path }}/docker/data/jellyfin/config/system.xml"
+  register: docker_jellyfin_system_xml
+
+- name: Seed Jellyfin system.xml
+  ansible.builtin.copy:
+    src: files/compose/jellyfin/jellyfin-system.xml
+    dest: "{{ data_path }}/docker/data/jellyfin/config/system.xml"
+    owner: "{{ puid }}"
+    group: "{{ pgid }}"
+    mode: '0600'
+  when: not docker_jellyfin_system_xml.stat.exists or docker_jellyfin_system_xml.stat.size == 0
+
+# wait: waits for containers to be running (and healthy when they have a
+# healthcheck) before the next stack (e.g. gluetun before arr-stack)
+- name: Run docker compose for each stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ docker_stacks_path }}/{{ item }}"
+    state: present
+    env_files:
+      - "{{ docker_stacks_path }}/{{ item }}/.env"
+    wait: true
+    wait_timeout: 300
+  loop: "{{ docker_stacks }}"

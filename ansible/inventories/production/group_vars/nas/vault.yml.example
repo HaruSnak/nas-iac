@@ -1,0 +1,58 @@
+---
+# Vault template (committed). The real vault.yml is never committed.
+# Usage:
+#   cp vault.yml.example vault.yml   # then fill in the ""
+#   ansible-vault encrypt vault.yml  # encrypt, password in ansible/.vault_pass
+#   ansible-vault edit vault.yml     # later changes
+# New variable: add it to this template too.
+
+# sudo passwords (SSH itself uses keys, see inventory.yml)
+vault_nas_admin_become_password: ""
+vault_nas_service_become_password: ""
+
+# =====================================================================
+#  .env VARIABLES — rendered by roles/docker/templates/env.j2
+# ---------------------------------------------------------------------
+#  - One entry per stack, merged with docker_env_common (vars.yml)
+#  - Deployment fails if a value is empty or contains '
+# =====================================================================
+
+docker_stacks_env:
+
+  # -------------------------- TRAEFIK --------------------------------
+  traefik:
+    TRAEFIK_CERTIF_PROVIDER: ""
+    TRAEFIK_CERTIF_EMAIL: ""
+    CLOUDFLARE_API_KEY: ""
+
+  # -------------------------- VPN-STACK ------------------------------
+  vpn-stack:
+    GLUETUN_VPN_PROVIDER: ""
+    AIRVPN_WG_PRIVATE_KEY: ""
+    AIRVPN_WG_PRESHARED_KEY: ""
+    AIRVPN_WG_ADDRESSES: ""
+
+  # -------------------------- ARR-STACK ------------------------------
+  # Common variables only
+  arr-stack: {}
+
+  # -------------------------- NEXTCLOUD ------------------------------
+  nextcloud:
+    NEXTCLOUD_DOMAIN: ""
+    NEXTCLOUD_IP_MACHINE: "{{ ansible_host }}"
+    NEXTCLOUD_ADMIN_USER: ""
+    NEXTCLOUD_ADMIN_PASSWORD: ""
+    POSTGRESQL_USER: ""
+    POSTGRESQL_DATABASE: ""
+    POSTGRESQL_PASSWORD: ""
+    REDIS_PASSWORD: ""
+
+  # -------------------------- JELLYFIN -------------------------------
+  jellyfin:
+    JELLYFIN_DOMAIN: ""
+    JELLYSEERR_DOMAIN: ""
+
+  # -------------------------- MONITORING -----------------------------
+  monitoring:
+    GRAFANA_ADMIN_USER: ""
+    GRAFANA_ADMIN_PASSWORD: ""

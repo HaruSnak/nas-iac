@@ -1,0 +1,10 @@
+apiVersion: 1
+datasources:
+  # Fixed uid: dashboards reference it, so it must not be generated randomly
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

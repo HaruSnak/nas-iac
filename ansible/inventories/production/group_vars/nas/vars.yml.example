@@ -1,0 +1,120 @@
+---
+# =====================================================================
+#  NAS-IaC — non-secret variables
+# ---------------------------------------------------------------------
+#  This is the committed template. The real vars.yml is never committed.
+#
+#  Usage:
+#    cp vars.yml.example vars.yml
+#    then fill in the values marked "EDIT" below.
+#
+#  Secrets (passwords, API keys) do NOT go here: see vault.yml.example.
+#  When adding a variable to vars.yml, add it to this template too.
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+#  1. CONTAINER ACCOUNT                                          EDIT
+# ---------------------------------------------------------------------
+# UID/GID of the svc-containers account, created by the common role.
+# Every container runs as this account: never as the deployment account,
+# never with the docker group.
+# Pick an ID that is free on the NAS:
+#   getent passwd 2000; getent group 2000   # must print nothing
+puid:  # e.g. 2000
+pgid:  # e.g. 2000
+
+
+# ---------------------------------------------------------------------
+#  2. STORAGE                                                    EDIT
+# ---------------------------------------------------------------------
+# Root of the NAS data volume. Everything below is created under it:
+#   <data_path>/docker/stacks   Compose files and generated .env
+#   <data_path>/docker/data     application data (configs, databases)
+#   <data_path>/media           downloads and media library
+data_path:  # e.g. /volume1
+
+docker_stacks_path: "{{ data_path }}/docker/stacks"
+
+
+# ---------------------------------------------------------------------
+#  3. DATA DIRECTORIES                          usually no need to edit
+# ---------------------------------------------------------------------
+# Relative to data_path. Created before deployment and owned by
+# puid/pgid (the containers write there as svc-containers).
+data_stacks_path:
+  # Application data
+  - docker/data/radarr/config
+  - docker/data/sonarr/config
+  - docker/data/prowlarr/config
+  - docker/data/jellyfin/config
+  - docker/data/jellyfin/cache
+  - docker/data/monitoring/grafana
+  - docker/data/monitoring/prometheus
+  - docker/data/traefik/letsencrypt
+  - docker/data/qbittorrent
+  - docker/data/gluetun
+  # Media: mounted as a single /data volume in qBittorrent, Radarr and
+  # Sonarr, so imports are hardlinks instead of copies. The parent folder is
+  # listed too: containers must be able to traverse it as its owner
+  - media
+  - media/download-client-downloads
+  - media/tvseries
+  - media/movies
+  - media/animes
+
+# Directories whose owner is managed by their own container at startup.
+# Created without forcing owner or mode: forcing them would break the
+# container until its next restart.
+data_stacks_path_container_owned:
+  - docker/data/nextcloud     # www-data (33)
+  - docker/data/nextcloud/db  # postgres (70), mode 0700
+  - docker/data/redis         # redis (999)
+
+# Note: the Seerr config directory (UID 1000) is handled separately by the
+# common role, see roles/common/defaults/main.yml.
+
+
+# ---------------------------------------------------------------------
+#  4. STACKS AND NETWORKS                       usually no need to edit
+# ---------------------------------------------------------------------
+# Stacks to deploy, IN THIS ORDER: Traefik first (reverse proxy), the VPN
+# before arr-stack (qBittorrent must be up before Radarr/Sonarr).
+# Each name must match a folder in roles/docker/files/compose/ and an
+# entry in docker_stacks_env (vault.yml).
+docker_stacks:
+  - traefik
+  - vpn-stack
+  - arr-stack
+  - nextcloud
+  - jellyfin
+  - monitoring
+
+# Networks shared between stacks, created before deployment (declared
+# as "external" in the Compose files)
+docker_networks_external:
+  - arr-media-net  # Seerr and Jellyfin <-> Radarr/Sonarr
+  - arr-vpn-net    # Radarr/Sonarr <-> qBittorrent (behind Gluetun)
+  - traefik-net    # Traefik <-> services exposed on the Internet
+
+
+# ---------------------------------------------------------------------
+#  5. DEPLOYMENT ACCOUNT                        usually no need to edit
+# ---------------------------------------------------------------------
+# Account Ansible uses to deploy (must match ansible_user of
+# dxp2800-service in inventory.yml). It is expired by default and only
+# unlocked during a run (just-in-time access).
+jit_service_account: XXXXXXXXXXXXXXXX
+
+
+# ---------------------------------------------------------------------
+#  6. COMMON .env VARIABLES                     usually no need to edit
+# ---------------------------------------------------------------------
+# Added to every stack's .env, together with that stack's own variables
+# from docker_stacks_env (vault.yml).
+docker_env_common:
+  PUID: "{{ puid }}"
+  PGID: "{{ pgid }}"
+  TZ: "Europe/Zurich"  # EDIT if needed: tz database name
+  DOCKER_PATH: "{{ data_path }}/docker"
+  MEDIA_PATH: "{{ data_path }}/media"

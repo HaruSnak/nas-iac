@@ -1,0 +1,25 @@
+---
+extends: default
+
+# Skip uncommitted files (vars.yml, vault.yml, .env...)
+ignore-from-file: .gitignore
+
+rules:
+  # Traefik labels and Compose commands often exceed 80 characters
+  line-length:
+    max: 160
+  # Compose files don't start with "---"
+  document-start: disable
+  truthy:
+    allowed-values: ["true", "false"]
+    # "on:" key in GitHub workflows
+    check-keys: false
+  # Values expected by ansible-lint
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

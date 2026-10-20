@@ -1,0 +1,78 @@
+services:
+  # Jellyseerr was renamed Seerr (v3, 2026): config is migrated automatically
+  # on first start. Runs as UID 1000 (see common role).
+  jellyseerr:
+    image: ghcr.io/seerr-team/seerr:v3.5.0
+    container_name: jellyseerr
+    init: true
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyseerr.rule=Host(`${JELLYSEERR_DOMAIN}`)"
+      - "traefik.http.routers.jellyseerr.entrypoints=websecure"
+      - "traefik.http.routers.jellyseerr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jellyseerr.loadbalancer.server.port=5055"
+      - "traefik.docker.network=traefik-net"
+    volumes:
+      - ${DOCKER_PATH}/data/jellyseerr/config:/app/config
+    networks:
+      - media-internal
+      - arr-media-net
+      - traefik-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:5055/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:12.2ubu2604-ls53
+    container_name: jellyfin
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002  # files writable by the svc-containers group
+      - TZ=${TZ}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyfin.rule=Host(`${JELLYFIN_DOMAIN}`)"
+      - "traefik.http.routers.jellyfin.entrypoints=websecure"
+      - "traefik.http.routers.jellyfin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+      - "traefik.docker.network=traefik-net"
+    devices:
+      - /dev/dri:/dev/dri # Hardware transcoding on the GPU
+    group_add:
+      - "44"    # video group GID
+      - "105"   # render group GID
+    volumes:
+      - ${DOCKER_PATH}/data/jellyfin/config:/config
+      - ${DOCKER_PATH}/data/jellyfin/cache:/cache
+      - ${MEDIA_PATH}/tvseries:/media/tv:ro
+      - ${MEDIA_PATH}/animes:/media/anime:ro
+      - ${MEDIA_PATH}/movies:/media/movies:ro
+    ports:
+      - "7359:7359/udp"
+    networks:
+      - media-internal
+      - traefik-net
+      - arr-media-net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+networks:
+  media-internal:
+    driver: bridge
+  arr-media-net:
+    external: true
+  traefik-net:
+    external: true

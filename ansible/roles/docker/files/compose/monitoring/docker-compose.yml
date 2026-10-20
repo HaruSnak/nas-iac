@@ -1,0 +1,114 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    container_name: prometheus
+    user: "${PUID}:${PGID}"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${DOCKER_PATH}/data/monitoring/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=90d'
+    networks:
+      - monitoring-internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    container_name: grafana
+    user: "${PUID}:${PGID}"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - TZ=${TZ:-Europe/Zurich}
+    volumes:
+      - ${DOCKER_PATH}/data/monitoring/grafana:/var/lib/grafana
+      - ./dashboards-json:/var/lib/grafana/dashboards
+      - ./provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - monitoring-internal
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: cadvisor
+    command:
+      - '--docker=tcp://socket-proxy:2375'
+      # Collect at Prometheus scrape interval (15s) instead of every second:
+      # that was causing the CPU spikes
+      - '--housekeeping_interval=15s'
+      - '--docker_only=true'
+      # Don't turn Docker labels (Traefik...) into metrics
+      - '--store_container_labels=false'
+      # Dashboards only use CPU, memory and network. "disk" measures container
+      # size by walking their files (expensive)
+      - '--disable_metrics=advtcp,app,cpuLoad,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,percpu,perf_event,pressure,process,referenced_memory,resctrl,sched,tcp,udp'
+    volumes:
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    depends_on:
+      - socket-proxy
+    networks:
+      - monitoring-internal
+      - socket-proxy
+    restart: unless-stopped
+
+  # Read-only Docker socket access for cAdvisor (POST blocked by default)
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.6-r0-ls101
+    container_name: monitoring-socket-proxy
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - INFO=1
+      - LOG_LEVEL=info
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+    networks:
+      - socket-proxy
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring-internal
+    restart: unless-stopped
+
+networks:
+  monitoring-internal:
+    driver: bridge
+  socket-proxy:
+    driver: bridge
+    internal: true

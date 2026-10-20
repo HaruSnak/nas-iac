@@ -1,0 +1,11 @@
+http:
+  middlewares:
+    # Applied to the whole websecure entrypoint (see docker-compose.yml)
+    security-headers:
+      headers:
+        stsSeconds: 31536000
+        contentTypeNosniff: true
+        customFrameOptionsValue: SAMEORIGIN
+        referrerPolicy: strict-origin-when-cross-origin
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"

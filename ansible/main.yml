@@ -1,0 +1,13 @@
+---
+- name: Unlock the service account (JIT)
+  ansible.builtin.import_playbook: unlock-service-account.yml
+
+- name: NAS infrastructure deployment
+  hosts: nas_service
+  become: true
+  roles:
+    - common
+    - docker
+
+- name: Lock the service account (JIT)
+  ansible.builtin.import_playbook: lock-service-account.yml

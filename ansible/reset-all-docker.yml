@@ -1,0 +1,47 @@
+---
+- name: Unlock the service account (JIT)
+  ansible.builtin.import_playbook: unlock-service-account.yml
+
+- name: Docker stacks cleanup
+  hosts: nas_service
+  become: true
+  vars_prompt:
+    - name: confirm_reset
+      prompt: >-
+        This will stop and remove all containers and stack definitions
+        (compose + .env). Data in /volume1/docker/data is kept. Type 'RESET'
+        to confirm
+      private: false
+
+  tasks:
+    - name: Check the confirmation
+      ansible.builtin.fail:
+        msg: "Reset cancelled — wrong confirmation."
+      when: confirm_reset != "RESET"
+
+    - name: List deployed stacks
+      ansible.builtin.stat:
+        path: "{{ docker_stacks_path }}/{{ item }}/docker-compose.yml"
+      loop: "{{ docker_stacks }}"
+      register: reset_stack_files
+
+    # Only existing stacks are stopped: a missing (already removed) stack is
+    # skipped, any other error still fails the run
+    - name: Stop and remove every Docker Compose stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_stacks_path }}/{{ item.item }}"
+        env_files:
+          - "{{ docker_stacks_path }}/{{ item.item }}/.env"
+        state: absent
+      loop: "{{ reset_stack_files.results | selectattr('stat.exists') }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Remove stack definitions (compose + .env)
+      ansible.builtin.file:
+        path: "{{ docker_stacks_path }}/{{ item }}"
+        state: absent
+      loop: "{{ docker_stacks }}"
+
+- name: Lock the service account (JIT)
+  ansible.builtin.import_playbook: lock-service-account.yml

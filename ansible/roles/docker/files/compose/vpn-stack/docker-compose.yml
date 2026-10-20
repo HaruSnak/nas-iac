@@ -1,0 +1,60 @@
+services:
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.3
+    container_name: gluetun
+    environment:
+      - VPN_SERVICE_PROVIDER=${GLUETUN_VPN_PROVIDER}
+      - VPN_TYPE=wireguard
+      - FIREWALL_VPN_INPUT_PORTS=50744 # port forwarded by AirVPN
+      - WIREGUARD_PRIVATE_KEY=${AIRVPN_WG_PRIVATE_KEY}
+      - WIREGUARD_PRESHARED_KEY=${AIRVPN_WG_PRESHARED_KEY}
+      - WIREGUARD_ADDRESSES=${AIRVPN_WG_ADDRESSES}
+      - SERVER_COUNTRIES=Switzerland
+      - IPV6=off
+      - TZ=${TZ}
+      - UPDATER_PERIOD=24h
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ${DOCKER_PATH}/data/gluetun:/gluetun
+    # qBittorrent WebUI (LAN only, do not forward on the router)
+    ports:
+      - "8080:8080"
+    networks:
+      - arr-vpn-net
+      - vpn-internal
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.2.4_v2.0.15-ls479
+    container_name: qbittorrent
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002  # files writable by the svc-containers group
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ${DOCKER_PATH}/data/qbittorrent:/config
+      # Single mount: downloads and library on the same volume, so imports
+      # are instant hardlinks instead of copies
+      - ${MEDIA_PATH}:/data
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    network_mode: "service:gluetun"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+networks:
+  vpn-internal:
+    driver: bridge
+  arr-vpn-net:
+    external: true
